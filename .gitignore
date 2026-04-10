@@ -1,0 +1,3 @@
+terraform-provider-vyos
+terraform-provider-vyos_*
+dist/
