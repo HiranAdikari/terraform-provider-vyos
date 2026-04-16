@@ -60,17 +60,56 @@ func (c *Client) Configure(ctx context.Context, op string, path []string, value 
 	return c.doVoid(ctx, "/configure", body)
 }
 
-// ConfigureSection sends a set/load operation to /configure-section.
-// section is a map representing the config sub-tree to write under path.
-// Use op="set" to merge/update, op="load" to replace.
-func (c *Client) ConfigureSection(ctx context.Context, op string, path []string, section map[string]any) error {
-	body := map[string]any{
-		"key":     c.apiKey,
-		"op":      op,
-		"path":    path,
-		"section": section,
+// ConfigureSection writes a config sub-tree by flattening the section map into
+// a single batched /configure request (list form), so all leaf set commands are
+// committed in one atomic operation.
+//
+// /configure-section is not proxied by nginx on all VyOS builds, so we flatten
+// the tree ourselves. All commands are sent in one request body to avoid
+// VyOS validation errors that occur when nodes are committed piecemeal
+// (e.g. NAT rules that require outbound-interface + source + translation together).
+func (c *Client) ConfigureSection(ctx context.Context, op string, basePath []string, section map[string]any) error {
+	var leaves []map[string]any
+	flattenSection(op, basePath, section, &leaves)
+
+	if len(leaves) == 0 {
+		return nil
 	}
-	return c.doVoid(ctx, "/configure-section", body)
+
+	body := map[string]any{
+		"key":      c.apiKey,
+		"commands": leaves,
+	}
+	return c.doVoid(ctx, "/configure", body)
+}
+
+// flattenSection recursively walks the section map and appends leaf command entries.
+// Each leaf becomes a command object: {"op": op, "path": [...], "value": "..."}.
+// Nested maps recurse deeper.
+// JSON arrays emit one command per element with the same path (multi-value leaf nodes,
+// e.g. DHCP name-server lists).
+// Any other scalar (number, bool) is converted to string.
+func flattenSection(op string, path []string, node map[string]any, out *[]map[string]any) {
+	for k, v := range node {
+		newPath := append(append([]string{}, path...), k)
+		switch val := v.(type) {
+		case map[string]any:
+			flattenSection(op, newPath, val, out)
+		case []any:
+			// Multi-value leaf node — emit one command per element (same path, each value).
+			for _, elem := range val {
+				*out = append(*out, map[string]any{"op": op, "path": newPath, "value": fmt.Sprintf("%v", elem)})
+			}
+		case string:
+			*out = append(*out, map[string]any{"op": op, "path": newPath, "value": val})
+		case nil:
+			// Presence node — set with no value
+			*out = append(*out, map[string]any{"op": op, "path": newPath})
+		default:
+			// Numbers, bools — convert to string
+			*out = append(*out, map[string]any{"op": op, "path": newPath, "value": fmt.Sprintf("%v", val)})
+		}
+	}
 }
 
 // ShowConfig retrieves the config sub-tree at path.
