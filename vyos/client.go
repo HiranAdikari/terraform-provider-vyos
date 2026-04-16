@@ -86,6 +86,8 @@ func (c *Client) ConfigureSection(ctx context.Context, op string, basePath []str
 // flattenSection recursively walks the section map and appends leaf command entries.
 // Each leaf becomes a command object: {"op": op, "path": [...], "value": "..."}.
 // Nested maps recurse deeper.
+// JSON arrays emit one command per element with the same path (multi-value leaf nodes,
+// e.g. DHCP name-server lists).
 // Any other scalar (number, bool) is converted to string.
 func flattenSection(op string, path []string, node map[string]any, out *[]map[string]any) {
 	for k, v := range node {
@@ -93,6 +95,11 @@ func flattenSection(op string, path []string, node map[string]any, out *[]map[st
 		switch val := v.(type) {
 		case map[string]any:
 			flattenSection(op, newPath, val, out)
+		case []any:
+			// Multi-value leaf node — emit one command per element (same path, each value).
+			for _, elem := range val {
+				*out = append(*out, map[string]any{"op": op, "path": newPath, "value": fmt.Sprintf("%v", elem)})
+			}
 		case string:
 			*out = append(*out, map[string]any{"op": op, "path": newPath, "value": val})
 		case nil:
