@@ -77,19 +77,13 @@ func (p *VyOSProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 	apiKey := coalesce(cfg.APIKey.ValueString(), os.Getenv("VYOS_API_KEY"))
 	insecure := cfg.Insecure.ValueBool()
 
-	if endpoint == "" {
-		resp.Diagnostics.AddError(
-			"Missing endpoint",
-			"Set endpoint in the provider block or the VYOS_ENDPOINT environment variable.",
-		)
-	}
-	if apiKey == "" {
-		resp.Diagnostics.AddError(
-			"Missing api_key",
-			"Set api_key in the provider block or the VYOS_API_KEY environment variable.",
-		)
-	}
-	if resp.Diagnostics.HasError() {
+	// If neither endpoint nor api_key is provided, leave the provider
+	// unconfigured (nil client). This allows the provider block to be
+	// declared in root modules that include child modules with count = 0
+	// VyOS resources without requiring VyOS credentials everywhere.
+	// Resource operations will fail with a clear error if they are ever
+	// invoked without a configured provider.
+	if endpoint == "" || apiKey == "" {
 		return
 	}
 

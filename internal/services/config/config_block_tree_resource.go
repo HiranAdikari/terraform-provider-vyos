@@ -115,6 +115,10 @@ func (r *ConfigBlockTreeResource) Configure(_ context.Context, req resource.Conf
 }
 
 func (r *ConfigBlockTreeResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	if r.client == nil {
+		resp.Diagnostics.AddError("Provider not configured", "The VyOS provider has no endpoint configured. Set endpoint and api_key in the provider block.")
+		return
+	}
 	var plan configBlockTreeModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
